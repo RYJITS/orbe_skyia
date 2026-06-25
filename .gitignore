@@ -52,3 +52,19 @@ PREPARATION_GITHUB*.json
 PREPARATION_GITHUB*.md
 docs/captures/
 captures/
+
+# Orchestrateur - publication GitHub publique
+build/
+.next/
+.nuxt/
+.cache/
+.playwright-cli/
+.playwright-mcp/
+coverage/
+backups/
+backup/
+archives/
+output/
+99_Archive/
+runtime/jobs/
+runtime/outputs/
