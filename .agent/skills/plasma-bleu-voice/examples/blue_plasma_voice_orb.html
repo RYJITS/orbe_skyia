@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Blue Plasma Voice Orb</title>
+<link rel="icon" href="data:,">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body,html{background:#000;overflow:hidden;width:100vw;height:100vh}
+  canvas{display:block;position:fixed;top:0;left:0}
+  #start-btn{
+    position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+    z-index:100;padding:18px 48px;font-size:18px;font-family:'Segoe UI',sans-serif;
+    background:rgba(0,140,255,0.15);color:#4de8ff;border:1px solid rgba(77,232,255,0.4);
+    border-radius:50px;cursor:pointer;letter-spacing:2px;text-transform:uppercase;
+    backdrop-filter:blur(10px);transition:all 0.3s ease;
+  }
+  #start-btn:hover{background:rgba(0,140,255,0.35);box-shadow:0 0 30px rgba(0,180,255,0.3)}
+  #start-btn.hidden{display:none}
+  #info{
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    color:rgba(100,200,255,0.35);font-family:'Segoe UI',sans-serif;font-size:11px;
+    letter-spacing:1px;pointer-events:none;z-index:10;
+  }
+</style>
+</head>
+<body>
+<button id="start-btn">Activate Microphone</button>
+<div id="info">VOICE REACTIVE PLASMA ORB</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+<script>
+
+// ═══════════════════════════════════════════════════
+// AUDIO REACTOR
+// ═══════════════════════════════════════════════════
+const AR={
+  bass:0,mid:0,high:0,vol:0,
+  sb:0,sm:0,sh:0,sv:0,active:false,
+  async init(){
+    try{
+      const s=await navigator.mediaDevices.getUserMedia({audio:true});
+      this.ctx=new AudioContext();
+      const src=this.ctx.createMediaStreamSource(s);
+      this.an=this.ctx.createAnalyser();
+      this.an.fftSize=2048;this.an.smoothingTimeConstant=0.82;
+      src.connect(this.an);
+      this.data=new Uint8Array(this.an.frequencyBinCount);
+      this.active=true;
+    }catch(e){console.warn('No mic')}
+  },
+  update(){
+    if(!this.active)return;
+    this.an.getByteFrequencyData(this.data);
+    const l=this.data.length;
+    let bs=0,ms=0,hs=0;
+    const be=Math.floor(l*.08),me=Math.floor(l*.35);
+    for(let i=0;i<be;i++)bs+=this.data[i];
+    for(let i=be;i<me;i++)ms+=this.data[i];
+    for(let i=me;i<l*.7;i++)hs+=this.data[i];
+    this.bass=bs/(be*255);this.mid=ms/((me-be)*255);this.high=hs/((l*.7-me)*255);
+    this.vol=this.bass*.5+this.mid*.35+this.high*.15;
+    const s=0.12;
+    this.sb+=(this.bass-this.sb)*s;this.sm+=(this.mid-this.sm)*s;
+    this.sh+=(this.high-this.sh)*s;this.sv+=(this.vol-this.sv)*s;
+  }
+};
+
+// ═══════════════════════════════════════════════════
+// NOISE GLSL
+// ═══════════════════════════════════════════════════
+const NOISE=`
+vec3 mod289(vec3 x){return x-floor(x/289.0)*289.0;}
+vec4 mod289(vec4 x){return x-floor(x/289.0)*289.0;}
+vec4 permute(vec4 x){return mod289((x*34.0+1.0)*x);}
+vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+float snoise(vec3 v){
+  const vec2 C=vec2(1.0/6.0,1.0/3.0);const vec4 D=vec4(0.0,0.5,1.0,2.0);
+  vec3 i=floor(v+dot(v,C.yyy));vec3 x0=v-i+dot(i,C.xxx);
+  vec3 g=step(x0.yzx,x0.xyz);vec3 l=1.0-g;
+  vec3 i1=min(g,l.zxy);vec3 i2=max(g,l.zxy);
+  vec3 x1=x0-i1+C.xxx;vec3 x2=x0-i2+C.yyy;vec3 x3=x0-D.yyy;
+  i=mod289(i);
+  vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
+  float n_=0.142857142857;vec3 ns=n_*D.wyz-D.xzx;
+  vec4 j=p-49.0*floor(p*ns.z*ns.z);
+  vec4 x_=floor(j*ns.z);vec4 y_=floor(j-7.0*x_);
+  vec4 x=x_*ns.x+ns.yyyy;vec4 y=y_*ns.x+ns.yyyy;
+  vec4 h=1.0-abs(x)-abs(y);
+  vec4 b0=vec4(x.xy,y.xy);vec4 b1=vec4(x.zw,y.zw);
+  vec4 s0=floor(b0)*2.0+1.0;vec4 s1=floor(b1)*2.0+1.0;
+  vec4 sh=-step(h,vec4(0.0));
+  vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+  vec3 p0=vec3(a0.xy,h.x);vec3 p1=vec3(a0.zw,h.y);
+  vec3 p2=vec3(a1.xy,h.z);vec3 p3=vec3(a1.zw,h.w);
+  vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+  p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+  vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
+  m=m*m;
+  return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+}
+float fbm(vec3 p){
+  float f=0.0;
+  f+=0.5*snoise(p);p*=2.01;f+=0.25*snoise(p);p*=2.02;
+  f+=0.125*snoise(p);p*=2.03;f+=0.0625*snoise(p);
+  return f;
+}`;
+
+// ═══════════════════════════════════════════════════
+// TRANSLUCENT PLASMA SHELL SHADER
+// This is the key: the sphere is SEMI-TRANSPARENT
+// so you can see the internal plasma structure
+// ═══════════════════════════════════════════════════
+const shellVS=`
+uniform float uTime,uBass,uMid,uHigh,uVol;
+varying vec3 vNorm,vPos,vWorldNorm;
+varying float vDisp;
+${NOISE}
+void main(){
+  vNorm=normalize(normalMatrix*normal);
+  vWorldNorm=normal;
+  vec3 p=position;
+  float t=uTime*0.35;
+  float nA=fbm(p*2.0+t*0.4+uBass*0.2);
+  float nB=snoise(p*3.5+t*0.7+vec3(uMid*1.5));
+  float nC=snoise(p*5.5-t*1.0+vec3(0.0,uHigh*2.0,0.0));
+  float d=nA*0.15*(1.0+uBass*1.2)+nB*0.08*(1.0+uMid)+nC*0.04*(1.0+uHigh*0.6);
+  d*=(1.0+uVol*0.6);
+  vDisp=d;
+  p+=normal*d;
+  vPos=p;
+  gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);
+}`;
+
+const shellFS=`
+uniform float uTime,uBass,uMid,uHigh,uVol;
+varying vec3 vNorm,vPos,vWorldNorm;
+varying float vDisp;
+${NOISE}
+void main(){
+  float t=uTime;
+  vec3 p=vPos;
+
+  // Plasma turbulence
+  float p1=fbm(p*3.0+t*0.25);
+  float p2=snoise(p*5.0-t*0.4+vec3(uBass*0.5));
+  float p3=snoise(p*8.0+t*0.6+vec3(0.0,uMid,0.0));
+  float pi=(p1*0.5+p2*0.3+p3*0.2)*0.5+0.5;
+
+  // Fresnel - edges are brighter (like the reference)
+  vec3 vd=normalize(cameraPosition-vPos);
+  float fres=1.0-max(dot(vd,vNorm),0.0);
+  float fresEdge=pow(fres,1.5);
+  float fresInner=pow(1.0-fres,2.0); // center is more transparent
+
+  // Deep color palette
+  vec3 voidBlue=vec3(0.0,0.01,0.04);
+  vec3 deepBlue=vec3(0.0,0.05,0.15);
+  vec3 midBlue=vec3(0.0,0.12,0.35);
+  vec3 cyan=vec3(0.0,0.35,0.55);
+  vec3 brightCyan=vec3(0.1,0.6,0.85);
+  vec3 hotWhite=vec3(0.6,0.85,1.0);
+
+  // Plasma color mapping
+  vec3 col=deepBlue;
+  col=mix(col,midBlue,smoothstep(0.25,0.5,pi));
+  col=mix(col,cyan,smoothstep(0.45,0.65,pi));
+  col=mix(col,brightCyan,smoothstep(0.6,0.8,pi)*0.7);
+
+  // Wispy plasma tendrils (the flowing energy filaments visible in the reference)
+  float tendril1=pow(abs(snoise(p*2.5+t*0.5+vec3(uBass*0.3))),1.5);
+  float tendril2=pow(abs(snoise(p*4.0-t*0.35+vec3(1.5,uMid,0.0))),2.0);
+  float tendril3=pow(abs(snoise(p*6.0+t*0.8+vec3(0.0,0.0,uHigh))),2.5);
+  float tendrils=tendril1*0.4+tendril2*0.35+tendril3*0.2;
+  tendrils*=(1.0+uBass*1.5);
+  col=mix(col,brightCyan,tendrils*0.6);
+
+  // Edge glow (fresnel makes edges brighter like in the reference)
+  col=mix(col,cyan,fresEdge*0.7);
+
+  // Displacement bright streaks
+  float dh=clamp(vDisp*3.0,0.0,1.0);
+  col=mix(col,brightCyan,dh*0.25);
+
+  // Voice boost
+  col*=(1.0+uVol*0.25);
+
+  // ALPHA: edges visible, center more transparent (volumetric feel)
+  // This is the KEY difference from before - the sphere is see-through
+  float alpha=0.15+fresEdge*0.55+tendrils*0.2+pi*0.15;
+  alpha*=(0.8+uVol*0.2);
+  alpha=clamp(alpha,0.05,0.75);
+
+  gl_FragColor=vec4(col,alpha);
+}`;
+
+// ═══════════════════════════════════════════════════
+// INNER PLASMA LAYER (deeper, more turbulent)
+// ═══════════════════════════════════════════════════
+const innerFS=`
+uniform float uTime,uBass,uMid,uVol;
+varying vec3 vNorm,vPos,vWorldNorm;
+varying float vDisp;
+${NOISE}
+void main(){
+  float t=uTime;
+  vec3 p=vPos;
+
+  // More chaotic inner plasma
+  float p1=fbm(p*4.0+t*0.5+vec3(uBass));
+  float p2=snoise(p*7.0-t*0.7+vec3(uMid*2.0));
+  float pi=(p1*0.6+p2*0.4)*0.5+0.5;
+
+  vec3 vd=normalize(cameraPosition-vPos);
+  float fres=1.0-max(dot(vd,vNorm),0.0);
+
+  vec3 deepBlue=vec3(0.0,0.04,0.12);
+  vec3 cyan=vec3(0.0,0.25,0.5);
+  vec3 bright=vec3(0.05,0.5,0.75);
+
+  vec3 col=deepBlue;
+  col=mix(col,cyan,smoothstep(0.3,0.6,pi));
+  col=mix(col,bright,smoothstep(0.6,0.85,pi)*0.5);
+
+  // Swirling vortex pattern
+  float angle=atan(p.y,p.x);
+  float dist=length(p.xy);
+  float swirl=sin(angle*3.0-dist*5.0+t*1.2)*0.5+0.5;
+  col=mix(col,cyan,swirl*0.3*smoothstep(0.1,0.4,dist));
+
+  float alpha=0.1+pow(fres,2.0)*0.3+pi*0.1;
+  alpha=clamp(alpha,0.0,0.45);
+
+  gl_FragColor=vec4(col,alpha);
+}`;
+
+// ═══════════════════════════════════════════════════
+// RING SHADER (runic orbital rings)
+// ═══════════════════════════════════════════════════
+const ringVS=`varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`;
+const ringFS=`
+uniform float uTime,uBass,uMid,uOp,uId;
+varying vec2 vUv;
+void main(){
+  float t=uTime;
+  float a=vUv.x*6.28318;
+  // Segmented glow
+  float seg=sin(a*(40.0+uId*20.0)+t*(2.0+uId)+uBass*5.0);
+  seg=smoothstep(0.4,0.95,seg);
+  // Flowing energy
+  float flow=sin(a*8.0-t*3.0+uId*1.5)*0.5+0.5;
+  flow*=sin(a*15.0+t*2.0)*0.5+0.5;
+  // Runic symbols
+  float syms=0.0;
+  for(float i=0.0;i<5.0;i++){
+    syms+=smoothstep(0.87,0.96,sin(a*(12.0+i*7.0)+t*(0.5+i*0.3)+uId*2.0))*(0.25-i*0.04);
+  }
+  // Cross section
+  float cy=vUv.y;
+  float ef=smoothstep(0.0,0.2,cy)*smoothstep(1.0,0.8,cy);
+  float cl=exp(-pow((cy-0.5)*8.0,2.0));
+  float intensity=(seg*0.35+flow*0.25+syms+cl*0.4)*ef;
+  intensity*=(1.0+uBass*0.6+uMid*0.4);
+  vec3 col=mix(vec3(0.0,0.15,0.45),vec3(0.1,0.5,0.8),intensity);
+  col+=vec3(0.2,0.7,1.0)*cl*0.3;
+  gl_FragColor=vec4(col*intensity*2.0,intensity*uOp);
+}`;
+
+// ═══════════════════════════════════════════════════
+// SCENE SETUP
+// ═══════════════════════════════════════════════════
+const W=window.innerWidth,H=window.innerHeight;
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(W,H);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.0;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x000205);
+
+const camera=new THREE.PerspectiveCamera(45,W/H,0.1,100);
+camera.position.z=5.0;
+
+// Bloom - subtle, not overwhelming
+const composer=new THREE.EffectComposer(renderer);
+composer.addPass(new THREE.RenderPass(scene,camera));
+const bloom=new THREE.UnrealBloomPass(new THREE.Vector2(W,H),0.8,0.6,0.35);
+composer.addPass(bloom);
+
+// ═══════════════════════════════════════════════════
+// INNER PLASMA LAYER (smaller sphere, deeper color)
+// ═══════════════════════════════════════════════════
+const innerGeo=new THREE.IcosahedronGeometry(0.7,48);
+const innerMat=new THREE.ShaderMaterial({
+  vertexShader:shellVS,fragmentShader:innerFS,
+  uniforms:{uTime:{value:0},uBass:{value:0},uMid:{value:0},uHigh:{value:0},uVol:{value:0}},
+  transparent:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending
+});
+const innerMesh=new THREE.Mesh(innerGeo,innerMat);
+scene.add(innerMesh);
+
+// ═══════════════════════════════════════════════════
+// OUTER PLASMA SHELL (main translucent sphere)
+// ═══════════════════════════════════════════════════
+const shellGeo=new THREE.IcosahedronGeometry(1.0,64);
+const shellMat=new THREE.ShaderMaterial({
+  vertexShader:shellVS,fragmentShader:shellFS,
+  uniforms:{uTime:{value:0},uBass:{value:0},uMid:{value:0},uHigh:{value:0},uVol:{value:0}},
+  transparent:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending
+});
+const shellMesh=new THREE.Mesh(shellGeo,shellMat);
+scene.add(shellMesh);
+
+// ═══════════════════════════════════════════════════
+// BRIGHT CORE (tiny white-cyan center point)
+// ═══════════════════════════════════════════════════
+const coreGeo=new THREE.IcosahedronGeometry(0.08,8);
+const coreMat=new THREE.MeshBasicMaterial({
+  color:new THREE.Color(0.4,0.7,1.0),transparent:true,opacity:0.9
+});
+const coreMesh=new THREE.Mesh(coreGeo,coreMat);
+scene.add(coreMesh);
+
+// Core glow sprite
+const glowTex=(()=>{
+  const c=document.createElement('canvas');c.width=128;c.height=128;
+  const ctx=c.getContext('2d');
+  const grad=ctx.createRadialGradient(64,64,0,64,64,64);
+  grad.addColorStop(0,'rgba(180,230,255,1)');
+  grad.addColorStop(0.2,'rgba(80,180,255,0.6)');
+  grad.addColorStop(0.5,'rgba(20,100,200,0.2)');
+  grad.addColorStop(1,'rgba(0,20,60,0)');
+  ctx.fillStyle=grad;ctx.fillRect(0,0,128,128);
+  return new THREE.CanvasTexture(c);
+})();
+const coreSprite=new THREE.Sprite(new THREE.SpriteMaterial({
+  map:glowTex,transparent:true,blending:THREE.AdditiveBlending,opacity:0.8
+}));
+coreSprite.scale.set(1.2,1.2,1);
+scene.add(coreSprite);
+
+// ═══════════════════════════════════════════════════
+// ATMOSPHERIC HAZE (subtle outer glow)
+// ═══════════════════════════════════════════════════
+const hazeGeo=new THREE.IcosahedronGeometry(1.6,16);
+const hazeMat=new THREE.ShaderMaterial({
+  vertexShader:`varying vec3 vN,vP;void main(){vN=normalize(normalMatrix*normal);vP=(modelViewMatrix*vec4(position,1.0)).xyz;gl_Position=projectionMatrix*vec4(vP,1.0);}`,
+  fragmentShader:`varying vec3 vN,vP;uniform float uVol;void main(){
+    vec3 vd=normalize(-vP);float f=1.0-max(dot(vd,vN),0.0);f=pow(f,3.5);
+    vec3 col=vec3(0.0,0.12,0.3)*f;gl_FragColor=vec4(col,f*0.25+uVol*0.05);
+  }`,
+  uniforms:{uVol:{value:0}},
+  transparent:true,depthWrite:false,side:THREE.BackSide,blending:THREE.AdditiveBlending
+});
+scene.add(new THREE.Mesh(hazeGeo,hazeMat));
+
+// ═══════════════════════════════════════════════════
+// ORBITAL RINGS (4 rings with runic patterns)
+// ═══════════════════════════════════════════════════
+const rings=[];
+[
+  {r:1.25,tb:0.012,tx:0.25,tz:0.1,sp:0.2,op:0.7,id:0},
+  {r:1.4,tb:0.009,tx:-0.55,tz:0.35,sp:-0.15,op:0.55,id:1},
+  {r:1.55,tb:0.007,tx:0.75,tz:-0.25,sp:0.1,op:0.4,id:2},
+  {r:1.1,tb:0.014,tx:-0.1,tz:0.65,sp:-0.25,op:0.6,id:3}
+].forEach(c=>{
+  const g=new THREE.TorusGeometry(c.r,c.tb,12,256);
+  const m=new THREE.ShaderMaterial({
+    vertexShader:ringVS,fragmentShader:ringFS,
+    uniforms:{uTime:{value:0},uBass:{value:0},uMid:{value:0},uOp:{value:c.op},uId:{value:c.id}},
+    transparent:true,depthWrite:false,side:THREE.DoubleSide,blending:THREE.AdditiveBlending
+  });
+  const ring=new THREE.Mesh(g,m);
+  ring.rotation.x=c.tx;ring.rotation.z=c.tz;
+  ring.userData={sp:c.sp,btx:c.tx};
+  scene.add(ring);rings.push(ring);
+});
+
+// ═══════════════════════════════════════════════════
+// FLOATING PARTICLES
+// ═══════════════════════════════════════════════════
+const PC=400;
+const pG=new THREE.BufferGeometry();
+const pP=new Float32Array(PC*3),pS=new Float32Array(PC),pZ=new Float32Array(PC);
+for(let i=0;i<PC;i++){
+  const th=Math.random()*Math.PI*2,ph=Math.acos(2*Math.random()-1);
+  const r=1.1+Math.random()*1.2;
+  pP[i*3]=r*Math.sin(ph)*Math.cos(th);
+  pP[i*3+1]=r*Math.sin(ph)*Math.sin(th);
+  pP[i*3+2]=r*Math.cos(ph);
+  pS[i]=0.2+Math.random()*0.8;
+  pZ[i]=0.5+Math.random()*2.0;
+}
+pG.setAttribute('position',new THREE.BufferAttribute(pP,3));
+pG.setAttribute('aSpd',new THREE.BufferAttribute(pS,1));
+pG.setAttribute('aSz',new THREE.BufferAttribute(pZ,1));
+const pM=new THREE.ShaderMaterial({
+  vertexShader:`
+    attribute float aSpd,aSz;uniform float uTime,uVol;varying float vA;
+    void main(){
+      vec3 p=position;float t=uTime*aSpd*0.25;
+      float cT=cos(t),sT=sin(t);
+      vec3 o=vec3(p.x*cT-p.z*sT,p.y+sin(t*2.0+p.x)*0.08,p.x*sT+p.z*cT);
+      o*=(1.0-uVol*0.1);
+      vec4 mv=modelViewMatrix*vec4(o,1.0);
+      gl_PointSize=aSz*(2.0+uVol*3.0)*(200.0/-mv.z);
+      gl_Position=projectionMatrix*mv;vA=0.35+uVol*0.4;
+    }`,
+  fragmentShader:`varying float vA;void main(){
+    float d=length(gl_PointCoord-0.5);if(d>0.5)discard;
+    float g=exp(-d*8.0);gl_FragColor=vec4(vec3(0.2,0.6,1.0)*g*1.5,g*vA);
+  }`,
+  uniforms:{uTime:{value:0},uVol:{value:0}},
+  transparent:true,depthWrite:false,blending:THREE.AdditiveBlending
+});
+scene.add(new THREE.Points(pG,pM));
+
+// ═══════════════════════════════════════════════════
+// LIGHTNING BOLTS
+// ═══════════════════════════════════════════════════
+const ltG=new THREE.Group();scene.add(ltG);
+function mkBolt(){
+  const pts=[],sg=15;
+  const th=Math.random()*Math.PI*2,ph=Math.acos(2*Math.random()-1);
+  const d=new THREE.Vector3(Math.sin(ph)*Math.cos(th),Math.sin(ph)*Math.sin(th),Math.cos(ph));
+  for(let i=0;i<=sg;i++){
+    const t=i/sg,r=0.1+t*0.9,j=(1-t)*0.1;
+    pts.push(new THREE.Vector3(d.x*r+(Math.random()-0.5)*j,d.y*r+(Math.random()-0.5)*j,d.z*r+(Math.random()-0.5)*j));
+  }
+  const cv=new THREE.CatmullRomCurve3(pts);
+  const g=new THREE.TubeGeometry(cv,sg,0.003,3,false);
+  const m=new THREE.MeshBasicMaterial({color:new THREE.Color(0.2,0.6,1.0),transparent:true,opacity:0.5,blending:THREE.AdditiveBlending});
+  const mesh=new THREE.Mesh(g,m);
+  mesh.userData={life:0,ml:0.2+Math.random()*0.3};
+  return mesh;
+}
+
+// ═══════════════════════════════════════════════════
+// ANIMATION
+// ═══════════════════════════════════════════════════
+const clock=new THREE.Clock();
+let ltT=0;
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt=clock.getDelta(),el=clock.getElapsedTime();
+  AR.update();
+  const b=AR.sb,m=AR.sm,h=AR.sh,v=AR.sv;
+
+  // Update shell uniforms
+  [shellMat,innerMat].forEach(mat=>{
+    mat.uniforms.uTime.value=el;
+    mat.uniforms.uBass.value=b;
+    mat.uniforms.uMid.value=m;
+    mat.uniforms.uHigh.value=h;
+    mat.uniforms.uVol.value=v;
+  });
+
+  // Rotate shells
+  shellMesh.rotation.y+=dt*0.08*(1+v*0.5);
+  shellMesh.rotation.x+=dt*0.04;
+  innerMesh.rotation.y-=dt*0.12*(1+v*0.5);
+  innerMesh.rotation.x-=dt*0.06;
+
+  // Scale on voice
+  const sc=1.0+v*0.12;
+  shellMesh.scale.setScalar(sc);
+  innerMesh.scale.setScalar(sc*0.95);
+
+  // Core pulse
+  const cp=1.0+Math.sin(el*3)*0.15+v*0.3;
+  coreMesh.scale.setScalar(cp);
+  coreMat.color.setRGB(0.4+v*0.3,0.7+v*0.15,1.0);
+  coreSprite.scale.set(1.2+v*0.8,1.2+v*0.8,1);
+  coreSprite.material.opacity=0.5+v*0.3+Math.sin(el*2)*0.05;
+
+  // Haze
+  hazeMat.uniforms.uVol.value=v;
+
+  // Rings
+  rings.forEach(r=>{
+    const u=r.userData;
+    r.rotation.y+=dt*u.sp*(1+v*2);
+    r.rotation.x=u.btx+Math.sin(el*0.3+u.sp*10)*0.04;
+    r.material.uniforms.uTime.value=el;
+    r.material.uniforms.uBass.value=b;
+    r.material.uniforms.uMid.value=m;
+  });
+
+  // Particles
+  pM.uniforms.uTime.value=el;
+  pM.uniforms.uVol.value=v;
+
+  // Lightning
+  ltT-=dt;
+  if(ltT<=0){
+    ltT=(v>0.1?0.06:0.3)+Math.random()*0.2;
+    const c=v>0.15?Math.floor(1+v*3):1;
+    for(let i=0;i<c;i++)ltG.add(mkBolt());
+  }
+  for(let i=ltG.children.length-1;i>=0;i--){
+    const bolt=ltG.children[i];
+    bolt.userData.life+=dt;
+    const t=bolt.userData.life/bolt.userData.ml;
+    bolt.material.opacity=Math.max(0,0.5*(1-t*t));
+    if(t>=1){bolt.geometry.dispose();bolt.material.dispose();ltG.remove(bolt);}
+  }
+
+  // Dynamic bloom
+  bloom.strength=0.6+v*0.6+Math.sin(el*2)*0.03;
+
+  // Camera breathe
+  camera.position.x=Math.sin(el*0.12)*0.15;
+  camera.position.y=Math.cos(el*0.08)*0.1;
+  camera.lookAt(0,0,0);
+
+  composer.render();
+}
+
+// ═══════════════════════════════════════════════════
+// START
+// ═══════════════════════════════════════════════════
+document.getElementById('start-btn').addEventListener('click',async()=>{
+  document.getElementById('start-btn').classList.add('hidden');
+  await AR.init();
+  animate();
+});
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  composer.setSize(window.innerWidth,window.innerHeight);
+});
+</script>
+</body>
+</html>

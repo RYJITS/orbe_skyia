@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Voice Reactive Plasma Orb — Pure WebGL</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000000;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+        }
+        #webgl-container {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+        }
+
+        #mic-prompt {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 60px;
+            padding: 14px 36px;
+            color: rgba(255,255,255,0.7);
+            font-size: 13px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.4s ease;
+            text-transform: uppercase;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        #mic-prompt:hover {
+            background: rgba(120, 80, 255, 0.12);
+            border-color: rgba(120, 80, 255, 0.35);
+            color: #fff;
+            box-shadow: 0 0 50px rgba(120, 80, 255, 0.15);
+        }
+        #mic-prompt.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-50%) translateY(20px);
+        }
+
+        #status {
+            position: fixed;
+            top: 20px;
+            right: 24px;
+            z-index: 100;
+            color: rgba(255,255,255,0.2);
+            font-size: 10px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+        #status.active { color: rgba(0, 255, 180, 0.5); }
+    </style>
+</head>
+<body>
+
+<div id="webgl-container"></div>
+<div id="mic-prompt">🎤 Cliquez pour activer le microphone</div>
+<div id="status">En attente…</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════
+// VOICE REACTIVE PLASMA ORB — Pure WebGL — From Scratch
+// Three.js + Custom GLSL + Web Audio API (Microphone)
+// ═══════════════════════════════════════════════════════
+
+// ──────────── AUDIO ENGINE ────────────
+let audioCtx, analyser, freqData, micOn = false;
+let sBass = 0, sMid = 0, sHigh = 0, sVol = 0;
+
+document.getElementById('mic-prompt').addEventListener('click', async function() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const src = audioCtx.createMediaStreamSource(stream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.8;
+        src.connect(analyser);
+        freqData = new Uint8Array(analyser.frequencyBinCount);
+        micOn = true;
+        this.classList.add('hidden');
+        document.getElementById('status').textContent = 'Microphone actif';
+        document.getElementById('status').classList.add('active');
+    } catch(e) {
+        this.textContent = '⚠ Accès micro refusé';
+    }
+});
+
+function readAudio() {
+    if (!micOn) return;
+    analyser.getByteFrequencyData(freqData);
+    const n = freqData.length;
+    let bass = 0, mid = 0, high = 0, vol = 0;
+
+    const b1 = Math.floor(n * 0.08);
+    for (let i = 0; i < b1; i++) bass += freqData[i];
+    bass /= (b1 * 255);
+
+    const b2 = Math.floor(n * 0.35);
+    for (let i = b1; i < b2; i++) mid += freqData[i];
+    mid /= ((b2 - b1) * 255);
+
+    const b3 = Math.floor(n * 0.75);
+    for (let i = b2; i < b3; i++) high += freqData[i];
+    high /= ((b3 - b2) * 255);
+
+    for (let i = 0; i < n; i++) vol += freqData[i];
+    vol /= (n * 255);
+
+    // Smooth lerp
+    sBass += (bass - sBass) * 0.14;
+    sMid  += (mid  - sMid)  * 0.14;
+    sHigh += (high - sHigh) * 0.14;
+    sVol  += (vol  - sVol)  * 0.14;
+}
+
+// ──────────── THREE.JS SCENE ────────────
+const container = document.getElementById('webgl-container');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+camera.position.z = 7;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 1);
+container.appendChild(renderer.domElement);
+
+const clock = new THREE.Clock();
+
+// ──────────── GLSL: VERTEX SHADER ────────────
+const vs = `
+    // --- Simplex 3D Noise (Ashima/Gustavson) ---
+    vec3 mod289(vec3 x){return x-floor(x*(1.0/289.0))*289.0;}
+    vec4 mod289(vec4 x){return x-floor(x*(1.0/289.0))*289.0;}
+    vec4 permute(vec4 x){return mod289(((x*34.0)+1.0)*x);}
+    vec4 taylorInvSqrt(vec4 r){return 1.79284291400159-0.85373472095314*r;}
+
+    float snoise(vec3 v){
+        const vec2 C=vec2(1.0/6.0,1.0/3.0);
+        const vec4 D=vec4(0.0,0.5,1.0,2.0);
+        vec3 i=floor(v+dot(v,C.yyy));
+        vec3 x0=v-i+dot(i,C.xxx);
+        vec3 g=step(x0.yzx,x0.xyz);
+        vec3 l=1.0-g;
+        vec3 i1=min(g.xyz,l.zxy);
+        vec3 i2=max(g.xyz,l.zxy);
+        vec3 x1=x0-i1+C.xxx;
+        vec3 x2=x0-i2+C.yyy;
+        vec3 x3=x0-D.yyy;
+        i=mod289(i);
+        vec4 p=permute(permute(permute(
+            i.z+vec4(0.0,i1.z,i2.z,1.0))
+            +i.y+vec4(0.0,i1.y,i2.y,1.0))
+            +i.x+vec4(0.0,i1.x,i2.x,1.0));
+        float n_=1.0/7.0;
+        vec3 ns=n_*D.wyz-D.xzx;
+        vec4 j=p-49.0*floor(p*ns.z*ns.z);
+        vec4 x_=floor(j*ns.z);
+        vec4 y_=floor(j-7.0*x_);
+        vec4 x=x_*ns.x+ns.yyyy;
+        vec4 y=y_*ns.x+ns.yyyy;
+        vec4 h=1.0-abs(x)-abs(y);
+        vec4 b0=vec4(x.xy,y.xy);
+        vec4 b1=vec4(x.zw,y.zw);
+        vec4 s0=floor(b0)*2.0+1.0;
+        vec4 s1=floor(b1)*2.0+1.0;
+        vec4 sh=-step(h,vec4(0.0));
+        vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
+        vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
+        vec3 p0=vec3(a0.xy,h.x);
+        vec3 p1=vec3(a0.zw,h.y);
+        vec3 p2=vec3(a1.xy,h.z);
+        vec3 p3=vec3(a1.zw,h.w);
+        vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
+        p0*=norm.x;p1*=norm.y;p2*=norm.z;p3*=norm.w;
+        vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
+        m=m*m;
+        return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+    }
+
+    // FBM with sharp ridges
+    float fbmRidge(vec3 p, float freq, int octaves){
+        float val=0.0, amp=0.5, f=freq;
+        for(int i=0;i<6;i++){
+            if(i>=octaves) break;
+            float n=snoise(p*f);
+            float ridge=1.0-abs(n);
+            ridge=pow(ridge,1.9);
+            val+=amp*ridge;
+            f*=2.15;
+            amp*=0.45;
+        }
+        return val;
+    }
+
+    // Standard FBM
+    float fbmSmooth(vec3 p, float freq){
+        float val=0.0, amp=0.5, f=freq;
+        for(int i=0;i<4;i++){
+            val+=amp*snoise(p*f);
+            f*=2.0; amp*=0.5;
+        }
+        return val;
+    }
+
+    uniform float uTime;
+    uniform float uBass;
+    uniform float uMid;
+    uniform float uHigh;
+    uniform float uVol;
+
+    varying float vElev;
+    varying vec3 vNorm;
+    varying vec3 vWorldPos;
+    varying float vVoiceHeat;
+
+    vec3 displace(vec3 p){
+        float t=uTime*0.15;
+
+        // Organic ridge displacement (the living, breathing surface)
+        float ridgeNoise = fbmRidge(p + t, 1.3, 5);
+
+        // Voice-reactive displacements layered on top
+        float voiceLow  = uBass * 0.60 * fbmSmooth(p * 0.7 + t * 0.4, 1.0);
+        float voiceMid  = uMid  * 0.35 * snoise(p * 2.8 + t * 1.2);
+        float voiceHigh = uHigh * 0.20 * snoise(p * 6.0 + t * 3.0);
+
+        float baseAmp = 0.40;
+        float voiceAmp = voiceLow + voiceMid + voiceHigh;
+        float totalDisp = ridgeNoise * baseAmp + voiceAmp * 0.55;
+
+        return p + normalize(p) * totalDisp;
+    }
+
+    void main(){
+        vec3 pos = position;
+        vec3 dPos = displace(pos);
+
+        vElev = length(dPos) - length(pos);
+
+        // Voice heat for fragment shader coloring
+        vVoiceHeat = uBass * 0.5 + uMid * 0.3 + uHigh * 0.2;
+
+        // Recompute normals (finite differences on displaced surface)
+        float eps = 0.004;
+        vec3 tang = normalize(cross(normal, vec3(0.0,1.0,0.0)));
+        if(length(tang)<0.1) tang = normalize(cross(normal, vec3(1.0,0.0,0.0)));
+        vec3 bitan = cross(normal, tang);
+
+        vec3 pA = displace(pos + tang * eps);
+        vec3 pB = displace(pos + bitan * eps);
+        vec3 nN = normalize(cross(pA - dPos, pB - dPos));
+
+        vNorm = normalMatrix * nN;
+        vWorldPos = (modelMatrix * vec4(dPos, 1.0)).xyz;
+
+        gl_Position = projectionMatrix * viewMatrix * vec4(vWorldPos, 1.0);
+    }
+`;
+
+// ──────────── GLSL: FRAGMENT SHADER ────────────
+const fs = `
+    uniform vec3 uClrDeep;
+    uniform vec3 uClrMid;
+    uniform vec3 uClrBright;
+    uniform vec3 uClrSpec;
+    uniform float uBass;
+    uniform float uMid;
+    uniform float uHigh;
+    uniform float uVol;
+    uniform float uTime;
+
+    varying float vElev;
+    varying vec3 vNorm;
+    varying vec3 vWorldPos;
+    varying float vVoiceHeat;
+
+    void main(){
+        vec3 V = normalize(cameraPosition - vWorldPos);
+        vec3 N = normalize(vNorm);
+
+        // Fresnel: silk/velvet metallic effect
+        float fres = clamp(dot(V, N), 0.0, 1.0);
+        float invFres = 1.0 - fres;
+        float rim = pow(invFres, 2.8);
+        float edgeFire = pow(invFres, 6.0);
+
+        // Elevation color mapping
+        float t = clamp(vElev / 0.55, 0.0, 1.0);
+
+        // Shadow -> Mid
+        vec3 col = mix(uClrDeep, uClrMid, t);
+
+        // Bright on ridges (voice boosts brightness)
+        float voiceBoost = 1.0 + vVoiceHeat * 2.5;
+        col = mix(col, uClrBright, smoothstep(0.2, 0.85, t) * rim * 1.3 * voiceBoost);
+
+        // Rim glow
+        col += uClrBright * rim * (0.6 + uVol * 2.0);
+
+        // Voice color injection — shifts toward cyan/white on peaks
+        vec3 voiceGlow = mix(uClrBright, uClrSpec, uHigh * 2.0) * vVoiceHeat;
+        col += voiceGlow * rim * 0.5;
+
+        // Multi-point specular (wet metallic)
+        vec3 L1 = normalize(vec3(1.0, 1.8, 2.5));
+        vec3 L2 = normalize(vec3(-2.0, 0.5, 1.5));
+        vec3 L3 = normalize(vec3(0.0, -1.0, 2.0));
+        vec3 H1 = normalize(L1 + V);
+        vec3 H2 = normalize(L2 + V);
+        vec3 H3 = normalize(L3 + V);
+
+        float s1 = pow(max(dot(N, H1), 0.0), 80.0);
+        float s2 = pow(max(dot(N, H2), 0.0), 50.0);
+        float s3 = pow(max(dot(N, H3), 0.0), 35.0);
+
+        col += uClrSpec * s1 * (1.5 + uVol * 3.0);
+        col += uClrBright * s2 * 0.6;
+        col += vec3(0.7, 0.5, 1.0) * s3 * 0.4;
+
+        // Edge fire — crackle on voice highs
+        col += uClrSpec * edgeFire * (0.35 + uHigh * 2.0);
+
+        // Subtle ambient
+        col += vec3(0.025, 0.015, 0.05) * clamp(dot(N, vec3(0.0,1.0,0.0)), 0.0, 1.0);
+
+        // HDR voice boost
+        col *= 1.0 + uVol * 0.8;
+
+        gl_FragColor = vec4(col, 1.0);
+    }
+`;
+
+// ──────────── UNIFORMS ────────────
+const U = {
+    uTime:     { value: 0 },
+    uBass:     { value: 0 },
+    uMid:      { value: 0 },
+    uHigh:     { value: 0 },
+    uVol:      { value: 0 },
+    uClrDeep:  { value: new THREE.Color("#04020B") },
+    uClrMid:   { value: new THREE.Color("#1E0F45") },
+    uClrBright:{ value: new THREE.Color("#8055FF") },
+    uClrSpec:  { value: new THREE.Color("#00F5FF") }
+};
+
+// ──────────── MAIN ORB ────────────
+const orbGeo = new THREE.IcosahedronGeometry(1.6, 180);
+const orbMat = new THREE.ShaderMaterial({
+    vertexShader: vs,
+    fragmentShader: fs,
+    uniforms: U
+});
+const orb = new THREE.Mesh(orbGeo, orbMat);
+scene.add(orb);
+
+// ──────────── GLOW SHELL (Additive transparent second sphere) ────────────
+const glowShellGeo = new THREE.IcosahedronGeometry(1.75, 40);
+const glowShellMat = new THREE.MeshBasicMaterial({
+    color: 0x4422aa,
+    transparent: true,
+    opacity: 0.04,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.BackSide
+});
+const glowShell = new THREE.Mesh(glowShellGeo, glowShellMat);
+scene.add(glowShell);
+
+// ──────────── BACKGROUND HALO ────────────
+function makeGlowTex(){
+    const c = document.createElement('canvas');
+    c.width = c.height = 256;
+    const ctx = c.getContext('2d');
+    const g = ctx.createRadialGradient(128,128,0,128,128,128);
+    g.addColorStop(0,'rgba(100,60,220,0.7)');
+    g.addColorStop(0.25,'rgba(60,30,150,0.3)');
+    g.addColorStop(0.55,'rgba(20,5,60,0.08)');
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,256,256);
+    return new THREE.CanvasTexture(c);
+}
+
+const halo = new THREE.Mesh(
+    new THREE.PlaneGeometry(16,16),
+    new THREE.MeshBasicMaterial({
+        map: makeGlowTex(),
+        transparent: true,
+        opacity: 0.12,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+    })
+);
+halo.position.z = -2;
+scene.add(halo);
+
+// ──────────── PARTICLES ────────────
+const PC = 3000;
+const pPos = new Float32Array(PC * 3);
+const pRad = new Float32Array(PC);
+const pTheta = new Float32Array(PC);
+const pPhi = new Float32Array(PC);
+const pSpd = new Float32Array(PC);
+
+for(let i=0;i<PC;i++){
+    pRad[i] = 2.0 + Math.random()*3.0;
+    pTheta[i] = Math.random()*Math.PI*2;
+    pPhi[i] = Math.acos(2*Math.random()-1);
+    pSpd[i] = 0.08 + Math.random()*0.25;
+    const r=pRad[i], th=pTheta[i], ph=pPhi[i];
+    pPos[i*3]   = r*Math.sin(ph)*Math.cos(th);
+    pPos[i*3+1] = r*Math.cos(ph);
+    pPos[i*3+2] = r*Math.sin(ph)*Math.sin(th);
+}
+
+const partGeo = new THREE.BufferGeometry();
+partGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+const partMat = new THREE.PointsMaterial({
+    size: 0.015,
+    color: 0x7755cc,
+    transparent: true,
+    opacity: 0.5,
+    blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
+    depthWrite: false
+});
+const particles = new THREE.Points(partGeo, partMat);
+scene.add(particles);
+
+// ──────────── RENDER LOOP ────────────
+function animate(){
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+
+    readAudio();
+
+    // Audio -> uniforms
+    U.uBass.value = sBass;
+    U.uMid.value  = sMid;
+    U.uHigh.value = sHigh;
+    U.uVol.value  = sVol;
+    U.uTime.value = t;
+
+    // Rotation
+    orb.rotation.y = t * 0.04;
+    orb.rotation.z = t * 0.015;
+    orb.rotation.x = Math.sin(t * 0.07) * 0.04;
+
+    // Voice-reactive scale
+    const sc = 1.0 + sBass * 0.15 + sVol * 0.06;
+    orb.scale.set(sc, sc, sc);
+
+    // Glow shell voice reactivity
+    glowShell.scale.set(sc * 1.08, sc * 1.08, sc * 1.08);
+    glowShellMat.opacity = 0.03 + sVol * 0.15;
+    glowShellMat.color.setHSL(0.72 + sMid * 0.15, 0.7, 0.25 + sVol * 0.3);
+
+    // Halo
+    halo.material.opacity = 0.08 + sVol * 0.25;
+
+    // Dynamic color shift on voice
+    U.uClrBright.value.setHSL(0.72 + sMid * 0.2, 0.82, 0.50 + sVol * 0.25);
+    U.uClrSpec.value.setHSL(0.50 - sHigh * 0.08, 0.95, 0.55 + sHigh * 0.35);
+
+    // Particles orbit
+    const posArr = particles.geometry.attributes.position.array;
+    for(let i=0;i<PC;i++){
+        pTheta[i] += pSpd[i] * (0.002 + sVol * 0.015);
+        const r = pRad[i] + sBass * 0.6 + sVol * 0.2;
+        const th = pTheta[i];
+        const ph = pPhi[i] + Math.sin(t*0.15 + i*0.005)*0.015;
+        posArr[i*3]   = r*Math.sin(ph)*Math.cos(th);
+        posArr[i*3+1] = r*Math.cos(ph);
+        posArr[i*3+2] = r*Math.sin(ph)*Math.sin(th);
+    }
+    particles.geometry.attributes.position.needsUpdate = true;
+    partMat.opacity = 0.3 + sVol * 1.0;
+    partMat.size = 0.012 + sVol * 0.04;
+
+    renderer.render(scene, camera);
+}
+animate();
+
+// ──────────── RESIZE ────────────
+addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

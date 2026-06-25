@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>High Fidelity Plasma Orb (Hybride WebGL/SVG)</title>
+    <style>
+        body { margin: 0; background-color: #010206; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh;}
+        
+        /* WebGL layer takes up entire background */
+        #webgl-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none;}
+        
+        /* SVG HUD perfectly centered and crisp */
+        #hud-overlay { position: absolute; z-index: 2; width: 90vmin; height: 90vmin; pointer-events: none; filter: drop-shadow(0 0 8px rgba(0, 200, 255, 0.6)); }
+        
+        .hud-group { transform-origin: 50% 50%; }
+        .spin-cw-slow { animation: spinCW 50s linear infinite; }
+        .spin-ccw-slow { animation: spinCCW 60s linear infinite; }
+        .spin-cw-fast { animation: spinCW 25s linear infinite; }
+        .spin-ccw-fast { animation: spinCCW 30s linear infinite; }
+        
+        @keyframes spinCW { 100% { transform: rotate(360deg); } }
+        @keyframes spinCCW { 100% { transform: rotate(-360deg); } }
+
+        .runes { font-family: monospace; font-size: 1.8px; fill: #bbeeff; opacity: 0.9; letter-spacing: 0.8px; }
+        .runes-bold { font-family: 'Courier New', Courier, monospace; font-size: 2px; fill: #ffffff; opacity: 0.9; font-weight: bold;}
+    </style>
+</head>
+<body>
+    
+    <!-- Couche WebGL 3D (Fluides organiques, Particules, Éclairs, Glow Spatial) -->
+    <div id="webgl-container"></div>
+    
+    <!-- Couche SVG Haute Définition (HUD, Runes, Constantes mathématiques, Interfaces aiguisées) -->
+    <svg id="hud-overlay" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+         <defs>
+             <!-- Chemins de texte masqués -->
+             <path id="text-path-outer" d="M 50, 50 m -36, 0 a 36,36 0 1,1 72,0 a 36,36 0 1,1 -72,0" />
+             <path id="text-path-inner" d="M 50, 50 m -28, 0 a 28,28 0 1,0 56,0 a 28,28 0 1,0 -56,0" />
+         </defs>
+
+         <!-- Outer HUD (Cadrans d'énergie et marqueurs) -->
+         <g class="hud-group spin-cw-slow">
+             <circle cx="50" cy="50" r="44" fill="none" stroke="#0044aa" stroke-width="0.3" stroke-dasharray="0.5 4" opacity="0.6"/>
+             <circle cx="50" cy="50" r="40" fill="none" stroke="#00aaff" stroke-width="0.1" stroke-dasharray="20 4 2 4" opacity="0.8"/>
+             <!-- Nodes (Points satellites de synchronisation) -->
+             <circle cx="90" cy="50" r="0.8" fill="#ffffff" />
+             <circle cx="50" cy="10" r="0.5" fill="#00ffff" />
+             <circle cx="50" cy="90" r="0.5" fill="#00ffff" />
+         </g>
+
+         <!-- Outer HUD Data Ring (Runes en rotation) -->
+         <g class="hud-group spin-ccw-slow">
+             <circle cx="50" cy="50" r="37" fill="none" stroke="#00ffff" stroke-width="0.1" stroke-dasharray="100 20" opacity="0.7"/>
+             <text class="runes">
+                  <textPath href="#text-path-outer" startOffset="5%">Σ(x)=∫e^x dx • Ψ(r,t) • r=1.618 • [SYS.NORM] • Ω(z) • ∇×E=−∂B/∂t</textPath>
+             </text>
+         </g>
+
+         <!-- Inner Interface Rings (Traceurs tranchants) -->
+         <g class="hud-group spin-ccw-fast">
+             <!-- Particules très denses simulées avec un path pointillé serré -->
+             <circle cx="50" cy="50" r="30" fill="none" stroke="#ffffff" stroke-width="0.3" stroke-dasharray="0.3 3" opacity="0.9" stroke-linecap="round"/>
+             <circle cx="50" cy="50" r="26" fill="none" stroke="#00ccff" stroke-width="0.2" stroke-dasharray="5 15" opacity="0.8"/>
+         </g>
+
+         <!-- Inner Data Focus -->
+         <g class="hud-group spin-cw-fast">
+             <text class="runes-bold">
+                  <textPath href="#text-path-inner" startOffset="55%">KERNEL ACTIVE... 100% [OVERRIDE]</textPath>
+             </text>
+             <circle cx="50" cy="50" r="23" fill="none" stroke="#00ffff" stroke-width="0.1" stroke-dasharray="1 6" opacity="0.5"/>
+         </g>
+    </svg>
+
+    <!-- Injection Three.js via CDN (Moteur 3D temps réel) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // === INITIALISATION WEBGL ===
+        const container = document.getElementById('webgl-container');
+        const scene = new THREE.Scene();
+        // Caméra paramétrée pour correspondre au ratio de l'écran (zoom et profondeur z=10)
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.z = 10;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limite à 2x pour la performance
+        renderer.setClearColor(0x000000, 0); // Fond transparent : le CSS (dark) reste visible
+        container.appendChild(renderer.domElement);
+
+        const clock = new THREE.Clock();
+
+        // === SHADER GLSL DE BASE ===
+        const vertexShader = `
+            varying vec2 vUv;
+            varying vec3 vPosition;
+            varying vec3 vNormal;
+            void main() {
+                vUv = uv;
+                vPosition = position;
+                vNormal = normalize(normalMatrix * normal);
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        // === SHADER GLSL DU PLASMA VOLUMÉTRIQUE (LE CŒUR DE LA VISUALISATION 3D) ===
+        // Utilise le bruit Simplex Fractal (FBM) pour générer l'énergie gazeuse de manière procédurale.
+        const fragmentShaderPlasma = `
+            uniform float time;
+            uniform vec3 colorCenter;
+            uniform vec3 colorEdge;
+            uniform float pulseSpeed;
+            varying vec2 vUv;
+            varying vec3 vPosition;
+            varying vec3 vNormal;
+
+            // Fonction pseudo-aléatoire Simplex 3D Noise optimisée (Ashima)
+            vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+            vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+            float snoise(vec3 v){ 
+                const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+                const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+                vec3 i  = floor(v + dot(v, C.yyy) );
+                vec3 x0 = v - i + dot(i, C.xxx) ;
+                vec3 g = step(x0.yzx, x0.xyz);
+                vec3 l = 1.0 - g;
+                vec3 i1 = min( g.xyz, l.zxy );
+                vec3 i2 = max( g.xyz, l.zxy );
+                vec3 x1 = x0 - i1 + 1.0 * C.xxx;
+                vec3 x2 = x0 - i2 + 2.0 * C.xxx;
+                vec3 x3 = x0 - 1.0 + 3.0 * C.xxx;
+                i = mod(i, 289.0 ); 
+                vec4 p = permute( permute( permute( 
+                            i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+                          + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
+                          + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+                float n_ = 1.0/7.0;
+                vec3  ns = n_ * D.wyz - D.xzx;
+                vec4 j = p - 49.0 * floor(p * ns.z *ns.z);
+                vec4 x_ = floor(j * ns.z);
+                vec4 y_ = floor(j - 7.0 * x_ );
+                vec4 x = x_ *ns.x + ns.yyyy;
+                vec4 y = y_ *ns.x + ns.yyyy;
+                vec4 h = 1.0 - abs(x) - abs(y);
+                vec4 b0 = vec4( x.xy, y.xy );
+                vec4 b1 = vec4( x.zw, y.zw );
+                vec4 s0 = floor(b0)*2.0 + 1.0;
+                vec4 s1 = floor(b1)*2.0 + 1.0;
+                vec4 sh = -step(h, vec4(0.0));
+                vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+                vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+                vec3 p0 = vec3(a0.xy,h.x);
+                vec3 p1 = vec3(a0.zw,h.y);
+                vec3 p2 = vec3(a1.xy,h.z);
+                vec3 p3 = vec3(a1.zw,h.w);
+                vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+                p0 *= norm.x;
+                p1 *= norm.y;
+                p2 *= norm.z;
+                p3 *= norm.w;
+                vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+                m = m * m;
+                return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
+            }
+
+            void main() {
+                // 1. Mouvement chaotique du plasma via le bruit de base
+                float noisePhase1 = snoise(vPosition * 1.5 + vec3(0.0, time * 0.2, time * 0.1));
+                float noisePhase2 = snoise(vPosition * 3.0 - vec3(time * 0.3, 0.0, time * 0.2));
+                
+                float intensity = noisePhase1 * 0.5 + 0.5; // Ramener la plage à [0, 1]
+                intensity *= (noisePhase2 * 0.5 + 0.5); // Accroître le contraste fractalisé
+
+                // 2. Pulsation temporelle pour un effet "coeur qui bat"
+                intensity *= (0.8 + 0.2 * sin(time * pulseSpeed));
+
+                // 3. Effet FRESNEL (Essentiel !)
+                // Illumine les contours vus de biais (comme l'atmosphère terrestre) et masque le centre face caméra.
+                vec3 viewVector = normalize(cameraPosition - vPosition);
+                float fresnel = dot(viewVector, vNormal); // 1 au centre, 0 aux bords
+                float invertedFresnel = clamp(1.0 - fresnel, 0.0, 1.0); // 0 au centre, 1 aux bords
+                
+                // 4. Mélange des couleurs (Interpolation Centre -> Bord)
+                // On adoucit l'effet fresnel avec des exposants pour plus de profondeur
+                vec3 finalColor = mix(colorEdge, colorCenter, pow(fresnel, 1.5));
+                
+                // Additivité du bruit dans la couleur pour brûler les hautes lumières
+                finalColor += vec3(intensity * 0.6);
+
+                // 5. Tendrils d'éclairs
+                // Si l'intensité du bruit est très haute, on rajoute un "flash" très électrique (filament).
+                if(intensity > 0.40) {
+                    finalColor += vec3(0.1, 0.9, 1.0) * pow((intensity - 0.40)*2.5, 2.0);
+                }
+
+                // 6. Opacité (Canal Alpha)
+                // Un fondu total sur les bords (pour la douceur) avec des trous selon l'intensité du bruit.
+                float alpha = intensity * fresnel * 2.8;
+
+                gl_FragColor = vec4(finalColor, clamp(alpha, 0.0, 1.0));
+            }
+        `;
+
+        // === CONSTRUCTION DES GÉOMÉTRIES ET MATÉRIAUX (Les Calques) ===
+
+        // Calque 1 : Noyau Stellaire Incandescent (Blanc aveuglant pur au fond)
+        const coreGeo = new THREE.SphereGeometry(0.8, 32, 32);
+        const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+        const coreLight = new THREE.Mesh(coreGeo, coreMat);
+        scene.add(coreLight);
+
+        // Calque 2 : Nébuleuse Plasmatique Interne (Détail et éclat)
+        const plasmaGeo = new THREE.SphereGeometry(2.5, 64, 64);
+        const plasmaUniforms = {
+            time: { value: 0.0 },
+            colorCenter: { value: new THREE.Color(0x00ffff) }, // Cyan extrêmement brillant
+            colorEdge: { value: new THREE.Color(0x001166) },   // Bleu ultra profond
+            pulseSpeed: { value: 1.5 }
+        };
+        const plasmaMat = new THREE.ShaderMaterial({
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShaderPlasma,
+            uniforms: plasmaUniforms,
+            transparent: true,
+            blending: THREE.AdditiveBlending, // Ajoute la lumière des pixels derrière
+            depthWrite: false, // Évite les bugs de tri Z-buffer avec la transparence
+            side: THREE.DoubleSide
+        });
+        const plasmaShell = new THREE.Mesh(plasmaGeo, plasmaMat);
+        scene.add(plasmaShell);
+
+        // Calque 3 : Aura Plasmatique Externe (Plus douce, plus lente, nuageuse)
+        const auraGeo = new THREE.SphereGeometry(3.6, 64, 64);
+        const auraUniforms = {
+            time: { value: 0.0 },
+            colorCenter: { value: new THREE.Color(0x0088ff) },
+            colorEdge: { value: new THREE.Color(0x000000) },
+            pulseSpeed: { value: 0.8 }
+        };
+        const auraMat = new THREE.ShaderMaterial({
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShaderPlasma,
+            uniforms: auraUniforms,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.45
+        });
+        const auraShell = new THREE.Mesh(auraGeo, auraMat);
+        scene.add(auraShell);
+
+        // Calque 4 : Poussière d'Étoiles en Rotation (Particules)
+        const particlesCount = 1000;
+        const posArray = new Float32Array(particlesCount * 3);
+        for(let i=0; i < particlesCount * 3; i+=3) {
+            // Distribution sphérique : limite le rayon entre 2.2 et 4.5
+            const radius = 2.2 + Math.random() * 2.3;
+            const theta = Math.random() * Math.PI * 2; // Angle horizontal long/lat
+            const phi = Math.acos((Math.random() * 2) - 1); // Angle vertical
+            
+            // Restriction d'angle Phi pour condenser les particules sur l'équateur et faire une bande concentrée (#WowEffect)
+            const bandedPhi = phi * 0.4 + 1.1; 
+
+            posArray[i] = radius * Math.sin(bandedPhi) * Math.cos(theta);
+            posArray[i+1] = radius * Math.cos(bandedPhi);
+            posArray[i+2] = radius * Math.sin(bandedPhi) * Math.sin(theta);
+        }
+        const particlesGeo = new THREE.BufferGeometry();
+        particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const particlesMat = new THREE.PointsMaterial({
+            size: 0.035, // Particules microscopiques
+            color: 0x55ffff,
+            transparent: true,
+            opacity: 0.8,
+            blending: THREE.AdditiveBlending,
+            sizeAttenuation: true
+        });
+        const particlesMesh = new THREE.Points(particlesGeo, particlesMat);
+        scene.add(particlesMesh);
+
+        // === BOUCLE DE RENDU 60FPS ===
+        function animate() {
+            requestAnimationFrame(animate);
+            const elapsedTime = clock.getElapsedTime();
+
+            // 1. Envoyer le temps aux shaders pour animer le bruit organique
+            plasmaUniforms.time.value = elapsedTime;
+            auraUniforms.time.value = elapsedTime * 0.7;
+
+            // 2. Animations de rotation pour le volume 3D
+            plasmaShell.rotation.y = elapsedTime * 0.06;
+            plasmaShell.rotation.z = elapsedTime * 0.03;
+
+            auraShell.rotation.y = -elapsedTime * 0.04;
+            auraShell.rotation.x = elapsedTime * 0.02;
+
+            particlesMesh.rotation.y = elapsedTime * 0.05;
+            particlesMesh.rotation.z = Math.sin(elapsedTime * 0.1) * 0.1; // Léger tangage
+
+            // 3. Pulsation infime de l'échelle du noyau interne
+            const coreScale = 1.0 + Math.sin(elapsedTime * 5.0) * 0.03;
+            coreLight.scale.set(coreScale, coreScale, coreScale);
+
+            // 4. Rendu de la scène WebGL
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        // === RESPONSIVITÉ DE LA FENÊTRE ===
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
