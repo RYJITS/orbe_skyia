@@ -27,6 +27,12 @@ npm run start
 npm run build
 ```
 
+## Captures d'ecran
+
+![Capture desktop](docs/github-captures/05-orbe-skyia-2026-06-25_03-17-04-desktop.png)
+
+![Capture mobile](docs/github-captures/05-orbe-skyia-2026-06-25_03-17-04-mobile.png)
+
 ## Variables d'environnement
 
 Copier `.env.example` vers `.env` en local puis remplir les valeurs privees.
