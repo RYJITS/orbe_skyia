@@ -1,8 +1,8 @@
 # Orbe SkyIA
 
 ## Liens vers l'application
-- Lien public: lien detecte mais masque par securite orchestrateur
-- GitHub: non detecte
+- Lien public: https://orbe.skyia.net/
+- GitHub: https://github.com/RYJITS/orbe_skyia
 
 ## A quoi sert le projet
 Orbe SkyIA est une version experimentale et immersive de SkyIA. L'utilisateur interagit avec une presence visuelle en forme d'orbe, choisit des modeles, lance des modes chat ou jeu, utilise la voix et peut sauvegarder ses sessions.
@@ -48,14 +48,11 @@ Le projet a ete concu comme laboratoire d'experience IA: meme logique de jugemen
 - Tests de securite et de composants
 
 ## Captures d'ecran
-- Aucune capture validee pour cette fiche.
+![Capture 1 - Orbe skyia](docs/captures/05-orbe-skyia-2026-06-25_03-17-04-desktop.png)
+
+![Capture 2 - Orbe skyia](docs/captures/05-orbe-skyia-2026-06-25_03-17-04-mobile.png)
 
 ## Mises a jour
 - Fiche actualisee depuis le registre orchestrateur et le catalogue projet.
-- Changements locaux detectes: relire la fiche apres validation des modifications.
-- Derniere mise a jour registre connue: 2026-06-21T21:46:01.763Z.
-
-## Derniere mise a jour
-2026-06-21T21:46:01.766Z
 
 > Fichier genere par l'orchestrateur pour le hub Site Ma Methode.
