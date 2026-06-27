@@ -1,38 +1,42 @@
 # Orbe SkyIA
 
-Prototype immersif SkyIA avec orbe WebGL, chat/jeu, voix Voxtral, sauvegardes locales et proxy Mistral cote serveur.
+## Concept
 
-## Runtime
+Prototype immersif de SkyIA avec orbe WebGL, selection de modeles, modes chat/jeu, voix, credits, sauvegardes et statistiques.
 
-- Frontend: React + Vite
-- Serveur Hostinger/Node: `server.cjs`
-- IA: API officielle Mistral via `/api/chat`
-- Voix: Voxtral via `/api/speech`, profil par defaut femme francaise rapide et agressive
-- Cle serveur requise: `MISTRAL_API_KEY`
-- Stockage app: localStorage pour profil, credits, sauvegardes et stats
-- Build: Vite 8 avec chunks optimises et PDF charge a la demande
+Explorer une experience SkyIA plus visuelle, vivante et memorisable.
 
-## Lancer en local
+## Fonctionnalites principales
+
+- Met en scene SkyIA sous forme d'orbe interactif.
+- Permet de choisir des modeles et protocoles de jeu.
+- Teste voix, audio, sauvegardes, credits et statistiques.
+- Reste bloque cote diffusion tant que la securite n'est pas OK.
+
+## Installation locale
 
 ```powershell
-cd "D:\00_Cerveau_IA\Projet\05_Orbe_skyia"
 npm install
-npm run check
-npm test -- --run
-npm run build
-$env:PORT="4175"; npm start
 ```
 
-URL locale: `http://localhost:4175`
+## Lancement
 
-## Variables
+```powershell
+npm run dev
+npm run start
+npm run build
+```
 
-Le serveur lit `MISTRAL_API_KEY` depuis l'environnement Hostinger. En local, il peut aussi lire `D:\00_Cerveau_IA\API\env.Local`.
+## Captures d'ecran
 
-Voix Voxtral optionnelle: `SKYIA_VOXTRAL_VOICE_ID` permet de forcer une voix precise. Sans variable, le serveur choisit d'abord une voix francaise agressive; le preset actuel est `Marie - Angry`.
+![Capture desktop](docs/github-captures/05-orbe-skyia-2026-06-28_00-12-39-desktop.png)
 
-## Notes
+![Capture mobile](docs/github-captures/05-orbe-skyia-2026-06-28_00-12-39-mobile.png)
 
-Firebase, Gemini et les Cloud Functions ont ete retires du runtime principal. Le paiement Stripe Firebase est neutralise tant qu'un endpoint Stripe Hostinger dedie n'est pas configure.
+## Variables d'environnement
 
-Les anciens fichiers Firebase/Gemini/debug et rapports obsoletes sont archives dans `_archive/2026-06-16-nettoyage-hostinger-mistral`. Le runtime actif est audite avec `npm audit` sans vulnerabilite connue.
+Copier `.env.example` vers `.env` en local puis remplir les valeurs privees.
+
+## Securite
+
+Ne jamais publier `.env`, tokens, sessions, logs sensibles, cles privees ou donnees personnelles.

@@ -1,12 +1,12 @@
 # Orbe SkyIA
 
-Prototype immersif de SkyIA avec orbe WebGL, selection de modeles, modes chat/jeu, voix, credits, sauvegardes et statistiques.
+## Concept
 
-## Objectif
+Prototype immersif de SkyIA avec orbe WebGL, selection de modeles, modes chat/jeu, voix, credits, sauvegardes et statistiques.
 
 Explorer une experience SkyIA plus visuelle, vivante et memorisable.
 
-## Fonctions principales
+## Fonctionnalites principales
 
 - Met en scene SkyIA sous forme d'orbe interactif.
 - Permet de choisir des modeles et protocoles de jeu.
@@ -29,9 +29,9 @@ npm run build
 
 ## Captures d'ecran
 
-![Capture desktop](docs/github-captures/05-orbe-skyia-2026-06-25_03-17-04-desktop.png)
+![Capture desktop](docs/github-captures/05-orbe-skyia-2026-06-28_00-12-39-desktop.png)
 
-![Capture mobile](docs/github-captures/05-orbe-skyia-2026-06-25_03-17-04-mobile.png)
+![Capture mobile](docs/github-captures/05-orbe-skyia-2026-06-28_00-12-39-mobile.png)
 
 ## Variables d'environnement
 
